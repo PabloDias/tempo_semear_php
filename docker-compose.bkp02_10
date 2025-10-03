@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # Serviço do Banco de Dados PostgreSQL
   db:
     image: postgres:15-alpine
     container_name: tds-postgres
@@ -9,25 +8,23 @@ services:
     environment:
       POSTGRES_DB: semeadordb
       POSTGRES_USER: semeadoruser
-      POSTGRES_PASSWORD: semearv2_2025
+      POSTGRES_PASSWORD: semearv2_2025 # Use sua senha
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
 
-  # Serviço do PHP-FPM
   php:
     build:
-      context: . # <--- GARANTA QUE ESTA LINHA SEJA UM PONTO
-      dockerfile: php/Dockerfile # <--- GARANTA QUE ESTA LINHA EXISTA
+      context: .
+      dockerfile: php/Dockerfile
     container_name: tds-php
     restart: unless-stopped
     volumes:
-      - ./src:/var/www/html
-      - ./uploads:/var/www/uploads
+      - ./src:/var/www/html           # 1. Mapeia seu código para desenvolvimento
+      - vendor_data:/var/www/html/vendor # 2. Protege a pasta vendor para que não seja sobrescrita
     command: sh -c "chown -R www-data:www-data /var/www/uploads && php-fpm"
 
-  # Serviço do Servidor Web Nginx
   nginx:
     image: nginx:stable-alpine
     container_name: tds-nginx
@@ -42,4 +39,4 @@ services:
 
 volumes:
   pgdata:
-  vendor_data: {}
+  vendor_data: {} # 3. Declara o volume nomeado para a pasta vendor

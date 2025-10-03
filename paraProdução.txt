@@ -1,0 +1,485 @@
+🚀 Guia Completo para Produção - Tempo de Semear
+📋 Checklist Pré-Produção
+✅ 1. Segurança do Banco de Dados
+Arquivo: docker-compose.yml (PRODUÇÃO)
+yamlversion: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: tds-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_DB: semeadordb
+      POSTGRES_USER: semeadoruser
+      POSTGRES_PASSWORD: ${DB_PASSWORD} # Usar variável de ambiente!
+    ports:
+      - "127.0.0.1:5433:5432" # Apenas localhost
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups # Para backups
+    networks:
+      - tds-network
+
+  php:
+    build:
+      context: .
+      dockerfile: php/Dockerfile.prod
+    container_name: tds-php-prod
+    restart: always
+    volumes:
+      - ./src:/var/www/html:ro # Read-only em produção
+      - ./uploads:/var/www/uploads
+      - vendor_data:/var/www/html/vendor
+    environment:
+      PHP_ENV: production
+    networks:
+      - tds-network
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: tds-nginx-prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443" # HTTPS obrigatório em produção
+    volumes:
+      - ./src:/var/www/html:ro
+      - ./nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro # Certificados SSL
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - php
+    networks:
+      - tds-network
+
+volumes:
+  pgdata:
+    driver: local
+  vendor_data:
+
+networks:
+  tds-network:
+    driver: bridge
+Criar arquivo .env (NUNCA commitar no Git)
+bashDB_PASSWORD=SuaSenhaForteAqui123!@#
+ADMIN_EMAIL=admin@tempodesemear.ma.gov.br
+
+✅ 2. Configuração do PHP para Produção
+Arquivo: php/Dockerfile.prod
+dockerfileFROM php:8.2-fpm-alpine
+
+WORKDIR /var/www/html
+
+# Instala dependências
+RUN apk add --no-cache \
+        postgresql-libs libzip libpng libjpeg-turbo \
+    && apk add --no-cache --virtual .build-deps $PHPIZE_DEPS \
+        postgresql-dev libzip-dev libpng-dev libjpeg-turbo-dev \
+    && docker-php-ext-configure gd --with-jpeg \
+    && docker-php-ext-install pdo pdo_pgsql zip gd \
+    && apk del .build-deps
+
+# Instala Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Copia arquivos
+COPY composer.json composer.lock* ./
+RUN composer install --no-dev --optimize-autoloader --no-interaction
+
+# Configurações PHP de produção
+COPY php/config/production.ini /usr/local/etc/php/conf.d/production.ini
+
+# Remove o Composer após instalação
+RUN rm /usr/bin/composer
+
+# Cria usuário não-root
+RUN addgroup -g 1000 appuser && \
+    adduser -D -u 1000 -G appuser appuser
+
+USER appuser
+Arquivo: php/config/production.ini
+ini; Configurações de Produção
+
+; Desabilita exibição de erros
+display_errors = Off
+display_startup_errors = Off
+error_reporting = E_ALL & ~E_DEPRECATED & ~E_STRICT
+
+; Log de erros
+log_errors = On
+error_log = /var/log/php_errors.log
+
+; Uploads
+upload_max_filesize = 10M
+post_max_size = 25M
+
+; Segurança
+expose_php = Off
+session.cookie_httponly = 1
+session.cookie_secure = 1
+session.use_strict_mode = 1
+
+; Performance
+opcache.enable = 1
+opcache.memory_consumption = 128
+opcache.interned_strings_buffer = 8
+opcache.max_accelerated_files = 10000
+opcache.validate_timestamps = 0
+
+✅ 3. Configuração do Nginx com SSL
+Arquivo: nginx/prod.conf
+nginx# Redireciona HTTP para HTTPS
+server {
+    listen 80;
+    server_name tempodesemear.ma.gov.br;
+    return 301 https://$server_name$request_uri;
+}
+
+# Servidor HTTPS
+server {
+    listen 443 ssl http2;
+    server_name tempodesemear.ma.gov.br;
+
+    root /var/www/html;
+    index index.php index.html;
+
+    # Certificados SSL
+    ssl_certificate /etc/nginx/ssl/cert.pem;
+    ssl_certificate_key /etc/nginx/ssl/key.pem;
+
+    # Configurações SSL seguras
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+
+    # Headers de segurança
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Limites
+    client_max_body_size 25M;
+    client_body_timeout 60s;
+
+    # Rate limiting (proteção contra DDoS)
+    limit_req_zone $binary_remote_addr zone=login:10m rate=5r/m;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    # Proteção de arquivos sensíveis
+    location ~ /\. {
+        deny all;
+    }
+
+    location ~* \.(sql|bkp|bak|env)$ {
+        deny all;
+    }
+
+    # Rate limit nas páginas de login
+    location ~* (login|cadastro)\.php$ {
+        limit_req zone=login burst=3 nodelay;
+        try_files $uri =404;
+        fastcgi_pass php:9000;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+    }
+
+    location ~ \.php$ {
+        try_files $uri =404;
+        fastcgi_split_path_info ^(.+\.php)(/.+)$;
+        fastcgi_pass php:9000;
+        fastcgi_index index.php;
+        include fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PATH_INFO $fastcgi_path_info;
+
+        # Timeouts
+        fastcgi_read_timeout 300;
+        fastcgi_send_timeout 300;
+    }
+
+    # Logs
+    access_log /var/log/nginx/access.log combined;
+    error_log /var/log/nginx/error.log warn;
+}
+
+✅ 4. Configuração de Backup Automático
+Arquivo: scripts/backup.sh
+bash#!/bin/bash
+
+# Configurações
+BACKUP_DIR="/backups"
+DATE=$(date +%Y%m%d_%H%M%S)
+DB_NAME="semeadordb"
+DB_USER="semeadoruser"
+RETENTION_DAYS=30
+
+# Cria diretório se não existir
+mkdir -p $BACKUP_DIR
+
+# Backup do banco de dados
+docker exec tds-postgres-prod pg_dump -U $DB_USER $DB_NAME | gzip > "$BACKUP_DIR/db_backup_$DATE.sql.gz"
+
+# Backup dos uploads
+tar -czf "$BACKUP_DIR/uploads_backup_$DATE.tar.gz" ./uploads
+
+# Remove backups antigos
+find $BACKUP_DIR -name "db_backup_*.sql.gz" -mtime +$RETENTION_DAYS -delete
+find $BACKUP_DIR -name "uploads_backup_*.tar.gz" -mtime +$RETENTION_DAYS -delete
+
+echo "Backup realizado: $DATE"
+Adicionar ao crontab (executar diariamente às 2h da manhã)
+bash0 2 * * * /caminho/para/scripts/backup.sh >> /var/log/backup.log 2>&1
+
+✅ 5. Melhorias no db.php para Produção
+Arquivo: src/db.php (PRODUÇÃO)
+php<?php
+// src/db.php (VERSÃO PRODUÇÃO)
+
+// Configurações do banco
+$host = getenv('DB_HOST') ?: 'db';
+$port = getenv('DB_PORT') ?: '5432';
+$dbname = getenv('DB_NAME') ?: 'semeadordb';
+$user = getenv('DB_USER') ?: 'semeadoruser';
+$password = getenv('DB_PASSWORD');
+
+if (empty($password)) {
+    error_log("ERRO CRÍTICO: Senha do banco não configurada!");
+    die("Erro de configuração do sistema.");
+}
+
+$dsn = "pgsql:host={$host};port={$port};dbname={$dbname}";
+
+try {
+    $pdo = new PDO($dsn, $user, $password, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        PDO::ATTR_EMULATE_PREPARES => false,
+        PDO::ATTR_PERSISTENT => true // Conexões persistentes
+    ]);
+} catch (PDOException $e) {
+    // Em produção, NÃO exibir detalhes do erro
+    error_log("Erro de conexão com banco: " . $e->getMessage());
+
+    // Página de erro genérica
+    http_response_code(503);
+    die("Sistema temporariamente indisponível. Tente novamente em alguns minutos.");
+}
+
+✅ 6. Sistema de Monitoramento
+Arquivo: scripts/monitor.sh
+bash#!/bin/bash
+
+# Verifica se os containers estão rodando
+if ! docker ps | grep -q "tds-postgres-prod"; then
+    echo "ALERTA: Container PostgreSQL parado!"
+    # Enviar e-mail ou notificação
+fi
+
+if ! docker ps | grep -q "tds-nginx-prod"; then
+    echo "ALERTA: Container Nginx parado!"
+    # Enviar e-mail ou notificação
+fi
+
+# Verifica espaço em disco
+DISK_USAGE=$(df -h / | awk 'NR==2 {print $5}' | sed 's/%//')
+if [ $DISK_USAGE -gt 80 ]; then
+    echo "ALERTA: Espaço em disco acima de 80%"
+fi
+
+# Verifica logs de erro
+ERROR_COUNT=$(docker logs tds-nginx-prod 2>&1 | grep -i "error" | wc -l)
+if [ $ERROR_COUNT -gt 100 ]; then
+    echo "ALERTA: Muitos erros no Nginx ($ERROR_COUNT)"
+fi
+
+✅ 7. Procedure para Popular Estados e Municípios
+Arquivo: 03_insert_states_cities.sql
+sql-- Insere o estado do Maranhão
+INSERT INTO estados (sigla, nome) VALUES ('MA', 'Maranhão');
+
+-- Insere todos os 217 municípios do Maranhão
+INSERT INTO municipios_permitidos (codigo_ibge, nome, estado_id, ativo) VALUES
+('2100055', 'Açailândia', 1, TRUE),
+('2100105', 'Afonso Cunha', 1, TRUE),
+('2100154', 'Água Doce do Maranhão', 1, TRUE),
+-- ... (adicionar todos os 217 municípios)
+('2114007', 'Vitorino Freire', 1, TRUE),
+('2114106', 'Zé Doca', 1, TRUE);
+
+-- Atualiza timestamps
+UPDATE estados SET atualizado_em = CURRENT_TIMESTAMP;
+UPDATE municipios_permitidos SET atualizado_em = CURRENT_TIMESTAMP;
+
+✅ 8. Criar Primeiro Usuário Admin
+Arquivo: scripts/criar_admin.php
+php<?php
+// scripts/criar_admin.php
+
+require_once __DIR__ . '/../src/db.php';
+
+$nome = "Administrador do Sistema";
+$cpf = "12345678900"; // Alterar
+$email = "admin@tempodesemear.ma.gov.br"; // Alterar
+$senha = "SenhaForte123!@#"; // Alterar e depois trocar no sistema
+$perfil = "admin";
+
+try {
+    $senha_hash = password_hash($senha, PASSWORD_ARGON2ID);
+
+    $stmt = $pdo->prepare(
+        "INSERT INTO usuarios_internos (nome, cpf, email, senha_hash, perfil, ativo, pode_exportar)
+         VALUES (:nome, :cpf, :email, :senha_hash, :perfil, TRUE, TRUE)"
+    );
+
+    $stmt->execute([
+        'nome' => $nome,
+        'cpf' => $cpf,
+        'email' => $email,
+        'senha_hash' => $senha_hash,
+        'perfil' => $perfil
+    ]);
+
+    echo "✓ Usuário admin criado com sucesso!\n";
+    echo "CPF: $cpf\n";
+    echo "Senha: $senha\n";
+    echo "\nALTERE A SENHA APÓS O PRIMEIRO LOGIN!\n";
+
+} catch (PDOException $e) {
+    echo "✗ Erro: " . $e->getMessage() . "\n";
+}
+
+🚀 Passos para Deploy
+1️⃣ Preparação do Servidor
+bash# Atualizar sistema
+sudo apt update && sudo apt upgrade -y
+
+# Instalar Docker e Docker Compose
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+
+# Instalar Docker Compose
+sudo apt install docker-compose -y
+
+# Criar usuário para a aplicação
+sudo useradd -m -s /bin/bash tdsapp
+sudo usermod -aG docker tdsapp
+2️⃣ Configurar o Projeto
+bash# Clonar ou copiar o projeto
+cd /opt
+sudo git clone <seu-repositorio> tempo-de-semear
+sudo chown -R tdsapp:tdsapp tempo-de-semear
+cd tempo-de-semear
+
+# Criar arquivo .env
+sudo -u tdsapp nano .env
+# Adicionar as variáveis de ambiente
+
+# Criar diretórios necessários
+sudo -u tdsapp mkdir -p uploads backups logs/nginx ssl
+sudo -u tdsapp chmod 755 uploads backups
+3️⃣ Obter Certificado SSL (Let's Encrypt)
+bash# Instalar Certbot
+sudo apt install certbot -y
+
+# Obter certificado
+sudo certbot certonly --standalone -d tempodesemear.ma.gov.br
+
+# Copiar certificados
+sudo cp /etc/letsencrypt/live/tempodesemear.ma.gov.br/fullchain.pem ssl/cert.pem
+sudo cp /etc/letsencrypt/live/tempodesemear.ma.gov.br/privkey.pem ssl/key.pem
+sudo chown tdsapp:tdsapp ssl/*
+4️⃣ Iniciar o Sistema
+bash# Build e start
+sudo -u tdsapp docker-compose -f docker-compose.yml up -d --build
+
+# Verificar se está rodando
+docker ps
+
+# Executar migrations
+docker exec tds-postgres-prod psql -U semeadoruser -d semeadordb -f /backups/01_create-tables-sql_cp.sql
+docker exec tds-postgres-prod psql -U semeadoruser -d semeadordb -f /backups/02_create-triggers-sql.sql
+docker exec tds-postgres-prod psql -U semeadoruser -d semeadordb -f /backups/03_insert_states_cities.sql
+
+# Criar usuário admin
+docker exec tds-php-prod php /var/www/html/../scripts/criar_admin.php
+5️⃣ Configurar Backups Automáticos
+bash# Tornar script executável
+chmod +x scripts/backup.sh
+
+# Adicionar ao crontab
+crontab -e
+# Adicionar: 0 2 * * * /opt/tempo-de-semear/scripts/backup.sh
+6️⃣ Configurar Firewall
+bash# Instalar UFW
+sudo apt install ufw -y
+
+# Configurar regras
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow 22/tcp    # SSH
+sudo ufw allow 80/tcp    # HTTP
+sudo ufw allow 443/tcp   # HTTPS
+
+# Ativar firewall
+sudo ufw enable
+
+🔒 Checklist de Segurança Final
+
+ Senhas fortes configuradas
+ SSL/HTTPS ativo
+ Firewall configurado
+ Backups automáticos funcionando
+ Logs sendo monitorados
+ Upload de arquivos limitado a 10MB
+ Rate limiting ativo
+ Headers de segurança configurados
+ Erros não exibidos ao usuário
+ Conexão com banco usando variáveis de ambiente
+ Arquivos sensíveis no .gitignore
+ Pasta uploads com permissões corretas
+
+
+📊 Monitoramento Recomendado
+
+Usar ferramentas como:
+
+Portainer (interface web para Docker)
+Grafana + Prometheus (métricas)
+Sentry (rastreamento de erros)
+
+
+Verificar diariamente:
+
+Logs de erro
+Espaço em disco
+Backups realizados
+Certificado SSL válido
+
+
+
+
+🆘 Troubleshooting Comum
+Problema: Container não inicia
+bashdocker logs tds-nginx-prod
+docker logs tds-php-prod
+docker logs tds-postgres-prod
+Problema: Erro ao conectar no banco
+bash# Verificar se o banco está rodando
+docker exec tds-postgres-prod psql -U semeadoruser -d semeadordb -c "SELECT version();"
+Problema: Upload de arquivos não funciona
+bash# Verificar permissões
+ls -la uploads/
+sudo chown -R 82:82 uploads/  # UID do www-data no Alpine
+
+📞 Suporte
+Para problemas em produção:
+
+Verificar logs: /opt/tempo-de-semear/logs/
+Verificar status: docker ps
+Verificar recursos: docker stats

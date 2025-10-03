@@ -15,7 +15,7 @@ RUN apk add --no-cache \
         libpng-dev \
         libjpeg-turbo-dev \
     && docker-php-ext-configure gd --with-jpeg \
-    && docker-php-ext-install pdo pdo_pgsql zip gd \
+    && docker-php-ext-install pdo pdo_pgsql zip gd opcache \
     && apk del .build-deps
 
 # Instala o Composer
@@ -23,21 +23,32 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
 # Copia composer.json e instala dependências
 COPY composer.json composer.lock* ./
-RUN composer install --no-dev --optimize-autoloader --no-interaction
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
 
-# Cria diretórios necessários com permissões corretas
+# Remove o Composer após instalação (segurança em produção)
+RUN rm /usr/bin/composer
+
+# Cria diretórios necessários
 RUN mkdir -p /var/www/uploads \
     && chown -R www-data:www-data /var/www/uploads \
     && chmod -R 755 /var/www/uploads
 
-# Copia configurações do PHP
-COPY php/config/uploads.ini /usr/local/etc/php/conf.d/uploads.ini
+# Copia configurações PHP de produção
+COPY php/config/production.ini /usr/local/etc/php/conf.d/production.ini
 
-# Define usuário padrão
+# Cria usuário não-root para segurança
+RUN addgroup -g 1000 appuser && \
+    adduser -D -u 1000 -G appuser appuser
+
+# Define o usuário
 USER www-data
 
-# Expõe a porta do PHP-FPM
+# Expõe a porta
 EXPOSE 9000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD php -v || exit 1
 
 # Comando padrão
 CMD ["php-fpm"]

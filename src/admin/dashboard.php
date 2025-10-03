@@ -91,7 +91,7 @@ try {
                 Usuário: <?= htmlspecialchars($_SESSION['admin_usuario_nome']); ?>
                 (<?= htmlspecialchars($_SESSION['admin_usuario_perfil']); ?>)
             </span>
-            <a href="../logout_admin.php" class="btn btn-danger">Sair</a>
+            <a href="logout_admin.php" class="btn btn-danger">Sair</a>
         </div>
     </div>
 </nav>

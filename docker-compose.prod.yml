@@ -1,0 +1,65 @@
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: tds-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_DB: ${DB_NAME:-semeadordb}
+      POSTGRES_USER: ${DB_USER:-semeadoruser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backups:/backups
+    networks:
+      - tds-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-semeadoruser} -d ${DB_NAME:-semeadordb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  php:
+    build:
+      context: .
+      dockerfile: php/Dockerfile.prod
+    container_name: tds-php-prod
+    restart: always
+    volumes:
+      - ./src:/var/www/html:ro
+      - ./uploads:/var/www/uploads
+      - vendor_data:/var/www/html/vendor
+    environment:
+      PHP_ENV: production
+    networks:
+      - tds-network
+    depends_on:
+      db:
+        condition: service_healthy
+
+  nginx:
+    image: nginx:stable-alpine
+    container_name: tds-nginx-prod
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./src:/var/www/html:ro
+      - ./nginx/prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - php
+    networks:
+      - tds-network
+
+volumes:
+  pgdata:
+    driver: local
+  vendor_data:
+
+networks:
+  tds-network:
+    driver: bridge
