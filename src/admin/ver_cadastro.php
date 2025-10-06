@@ -392,68 +392,138 @@ function formatarTamanho($bytes) {
                 </div>
             </div>
 
-            <?php if ($cadastro['status'] === 'enviado' || $cadastro['status'] === 'em_analise'): ?>
-                <div class="card mb-3">
-                    <div class="card-header bg-warning">
-                        <strong>Validar Cadastro</strong>
-                    </div>
-                    <div class="card-body">
-                        <form action="validar_cadastro.php" method="POST">
-                            <input type="hidden" name="cadastro_id" value="<?= $cadastro['id'] ?>">
-                            
-                            <div class="mb-3">
-                                <label class="form-label">Novo Status</label>
-                                <select name="status" class="form-select" required>
-                                    <option value="">Selecione...</option>
-                                    <option value="em_analise">Em Análise</option>
-                                    <option value="validado">Validado</option>
-                                    <option value="rejeitado">Rejeitado</option>
-                                </select>
-                            </div>
-                            
-                            <div class="mb-3">
-                                <label class="form-label">Observações</label>
-                                <textarea name="observacoes" class="form-control" rows="3" placeholder="Motivo da decisão..."></textarea>
-                            </div>
-                            
-                            <button type="submit" class="btn btn-primary w-100">Salvar Validação</button>
-                        </form>
-                    </div>
-                </div>
-            <?php elseif ($cadastro['status'] === 'validado'): ?>
-                <div class="alert alert-success">
-                    <strong>Cadastro Validado</strong><br>
-                    <?php if ($cadastro['observacoes_analise']): ?>
-                        <?= htmlspecialchars($cadastro['observacoes_analise']) ?>
-                    <?php endif; ?>
-                </div>
-            <?php endif; ?>
+            <!-- Botão de Edição -->
+            <?php 
+            $pode_editar = false;
 
-            <?php if ($_SESSION['admin_usuario_perfil'] === 'admin'): ?>
+            if ($_SESSION['admin_usuario_perfil'] === 'admin') {
+                // Admin pode editar sempre
+                $pode_editar = true;
+            } elseif ($_SESSION['admin_usuario_perfil'] === 'supervisor') {
+                // Supervisor pode editar rascunho e em_analise
+                $pode_editar = in_array($cadastro['status'], ['rascunho', 'em_analise']);
+            }
+            ?>
+
+            <?php if ($pode_editar): ?>
                 <a href="editar_cadastro.php?id=<?= $cadastro['id']; ?>" class="btn btn-warning w-100 mb-3">
                     ✏️ Editar Cadastro
                 </a>
-                <?php if (!$cadastro['editavel']): ?>
+                <?php if (!$cadastro['editavel'] && $_SESSION['admin_usuario_perfil'] === 'admin'): ?>
                     <small class="text-muted d-block mb-3">
                         ⚠️ Cadastro já enviado. Edição administrativa com justificativa.
                     </small>
                 <?php endif; ?>
             <?php endif; ?>
+
+            <!-- Análise do Cadastro -->
+            <?php
+            $perfil = $_SESSION['admin_usuario_perfil'];
+            $status_atual = $cadastro['status'];
+
+            // Admin pode sempre alterar status (re-validar)
+            // Supervisor só pode analisar se ainda NÃO foi analisado (status enviado ou em_analise)
+            $pode_analisar = false;
+
+            if ($perfil === 'admin') {
+                $pode_analisar = true;
+            } elseif ($perfil === 'supervisor') {
+                $pode_analisar = in_array($status_atual, ['enviado', 'em_analise']);
+            }
+            ?>
+
+            <?php if ($pode_analisar): ?>
+                <div class="card mb-3">
+                    <div class="card-header <?= $status_atual === 'aprovado' ? 'bg-success text-white' : ($status_atual === 'rejeitado' ? 'bg-danger text-white' : 'bg-warning') ?>">
+                        <strong><?= $perfil === 'admin' ? 'Análise do Cadastro (Admin)' : 'Analisar Cadastro (Supervisor)' ?></strong>
+                        <?php if ($status_atual !== 'enviado' && $status_atual !== 'rascunho'): ?>
+                            <small class="d-block">Status atual: <?= strtoupper(str_replace('_', ' ', $status_atual)) ?></small>
+                        <?php endif; ?>
+                    </div>
+                    <div class="card-body">
+                        <?php if ($cadastro['observacoes_analise']): ?>
+                            <div class="alert alert-info mb-3">
+                                <strong>Análise anterior:</strong><br>
+                                <?= htmlspecialchars($cadastro['observacoes_analise']) ?>
+                                <?php if ($cadastro['nome_analisador']): ?>
+                                    <br><small class="text-muted">Por: <?= htmlspecialchars($cadastro['nome_analisador']) ?> em <?= date('d/m/Y H:i', strtotime($cadastro['data_analise'])) ?></small>
+                                <?php endif; ?>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <form action="validar_cadastro.php" method="POST">
+                            <input type="hidden" name="cadastro_id" value="<?= $cadastro['id'] ?>">
+                            
+                            <div class="mb-3">
+                                <label class="form-label"><?= $perfil === 'admin' ? 'Alterar Status Para:' : 'Definir Status:' ?></label>
+                                <select name="status" class="form-select" required>
+                                    <option value="">Selecione...</option>
+                                    <?php if ($perfil === 'admin'): ?>
+                                        <option value="enviado" <?= $status_atual === 'enviado' ? 'selected' : '' ?>>Enviado</option>
+                                        <option value="em_analise" <?= $status_atual === 'em_analise' ? 'selected' : '' ?>>Em Análise</option>
+                                        <option value="aprovado" <?= $status_atual === 'aprovado' ? 'selected' : '' ?>>Aprovado</option>
+                                        <option value="rejeitado" <?= $status_atual === 'rejeitado' ? 'selected' : '' ?>>Rejeitado</option>
+                                    <?php else: ?>
+                                        <option value="em_analise">Em Análise</option>
+                                        <option value="aprovado">Aprovado</option>
+                                        <option value="rejeitado">Rejeitado</option>
+                                    <?php endif; ?>
+                                </select>
+                            </div>
+                            
+                            <div class="mb-3">
+                                <label class="form-label">Observações</label>
+                                <textarea name="observacoes" class="form-control" rows="3" 
+                                        placeholder="Descreva o motivo da decisão..."
+                                        required></textarea>
+                            </div>
+                            
+                            <button type="submit" class="btn btn-primary w-100">
+                                <?= $perfil === 'admin' && $cadastro['observacoes_analise'] ? 'Re-validar Cadastro' : 'Salvar Análise' ?>
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            <?php else: ?>
+                <!-- Apenas visualização -->
+                <div class="alert alert-<?= $status_atual === 'aprovado' ? 'success' : ($status_atual === 'rejeitado' ? 'danger' : 'info') ?>">
+                    <strong>Status: <?= strtoupper(str_replace('_', ' ', $status_atual)) ?></strong>
+                    <?php if ($cadastro['observacoes_analise']): ?>
+                        <br><?= htmlspecialchars($cadastro['observacoes_analise']) ?>
+                    <?php endif; ?>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 
     <!-- Histórico de Edições -->
-    <?php if (count($historico) > 0): ?>
+    <?php 
+    // Filtrar histórico baseado no perfil
+    $historico_filtrado = [];
+    if ($_SESSION['admin_usuario_perfil'] === 'admin') {
+        // Admin vê tudo
+        $historico_filtrado = $historico;
+    } else {
+        // Supervisor NÃO vê mudanças de status (análise)
+        foreach ($historico as $item) {
+            if ($item['campo_alterado'] !== 'status') {
+                $historico_filtrado[] = $item;
+            }
+        }
+    }
+    ?>
+
+    <?php if (count($historico_filtrado) > 0): ?>
         <div class="section-title">
             <h5 class="mb-0">📜 Histórico de Alterações</h5>
         </div>
         <div class="card">
             <div class="card-body">
-                <?php foreach ($historico as $item): ?>
+                <?php foreach ($historico_filtrado as $item): ?>
                     <div class="timeline-item">
                         <strong><?= ucfirst(str_replace('_', ' ', $item['campo_alterado'])) ?></strong>
                         <small class="text-muted d-block">
-                            <?= formatarDataHora($item['criado_em']) ?> - 
+                            <?= date('d/m/Y H:i', strtotime($item['criado_em'])) ?> - 
                             <?= htmlspecialchars($item['nome_usuario'] ?? 'Sistema') ?>
                         </small>
                         <div class="mt-2">
@@ -470,6 +540,7 @@ function formatarTamanho($bytes) {
             </div>
         </div>
     <?php endif; ?>
+
 
 </div>
 

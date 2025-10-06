@@ -253,18 +253,7 @@ if ($cadastro && !$cadastro['editavel']) {
                 </div>
                 <div class="form-section">
                     <div class="row g-3">
-                        <div class="col-md-6">
-                            <label for="estado_id" class="form-label">Estado</label>
-                            <select class="form-select" id="estado_id" name="estado_id" <?= $form_editavel ? '' : 'disabled' ?>>
-                                <option value="">Selecione...</option>
-                                <?php foreach ($estados as $estado): ?>
-                                    <option value="<?= $estado['id'] ?>" <?= ($cadastro['estado_id'] ?? '') == $estado['id'] ? 'selected' : '' ?>>
-                                        <?= htmlspecialchars($estado['nome']) ?>
-                                    </option>
-                                <?php endforeach; ?>
-                            </select>
-                        </div>
-                        <div class="col-md-6">
+                        <div class="col-md-12">
                             <label for="municipio_id" class="form-label">Município de Residência <span class="text-danger">*</span></label>
                             <select class="form-select" id="municipio_id" name="municipio_id" <?= $form_editavel ? 'required' : 'disabled' ?>>
                                 <option value="">Selecione seu município...</option>
@@ -274,6 +263,7 @@ if ($cadastro && !$cadastro['editavel']) {
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            <div class="form-text">Selecione seu município no Maranhão</div>
                         </div>
                     </div>
                 </div>

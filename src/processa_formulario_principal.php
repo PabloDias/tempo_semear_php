@@ -39,7 +39,8 @@ try {
         'uf_documento' => $_POST['uf_documento'] ?? null,
         
         // Localização
-        'estado_id' => !empty($_POST['estado_id']) ? (int)$_POST['estado_id'] : null,
+        //'estado_id' => !empty($_POST['estado_id']) ? (int)$_POST['estado_id'] : null, -- Para todos os estados
+        'estado_id' => 1,
         'municipio_id' => (int)$_POST['municipio_id'],
         
         // Contato

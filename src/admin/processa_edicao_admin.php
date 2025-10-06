@@ -4,7 +4,9 @@
 session_start();
 require_once '../db.php';
 
-if (!isset($_SESSION['admin_usuario_id']) || $_SESSION['admin_usuario_perfil'] !== 'admin' || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+$perfis_permitidos = ['admin', 'supervisor'];
+
+if (!isset($_SESSION['admin_usuario_id']) || !in_array($_SESSION['admin_usuario_perfil'], $perfis_permitidos) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
     header('Location: index.php?error=acesso_negado');
     exit();
 }

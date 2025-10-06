@@ -1,5 +1,5 @@
 <?php
-// src/admin/dashboard.php (VERSÃO COM FILTROS CORRIGIDOS)
+// src/admin/dashboard.php
 
 session_start();
 require_once '../db.php';
@@ -12,6 +12,7 @@ if (!isset($_SESSION['admin_usuario_id'])) {
 // Lógica de Filtro
 $filtro_municipio_id = isset($_GET['municipio_id']) && !empty($_GET['municipio_id']) ? (int)$_GET['municipio_id'] : null;
 $filtro_cpf = isset($_GET['cpf']) && !empty($_GET['cpf']) ? preg_replace('/[^0-9]/', '', $_GET['cpf']) : null;
+$filtro_status = isset($_GET['status']) && !empty($_GET['status']) ? $_GET['status'] : null;
 
 $where_conditions = [];
 $params = [];
@@ -22,7 +23,11 @@ if ($filtro_municipio_id) {
 }
 if ($filtro_cpf) {
     $where_conditions[] = "c.cpf LIKE :cpf";
-    $params[':cpf'] = $filtro_cpf . '%'; // Permite buscar por parte do CPF
+    $params[':cpf'] = $filtro_cpf . '%';
+}
+if ($filtro_status) {
+    $where_conditions[] = "c.status = :status";
+    $params[':status'] = $filtro_status;
 }
 
 $where_sql = "";
@@ -36,17 +41,17 @@ $registros_por_pagina = 15;
 $offset = ($pagina_atual - 1) * $registros_por_pagina;
 
 try {
-    // Busca apenas municípios ATIVOS para o dropdown do filtro
+    // Busca municípios ativos
     $stmtMunicipios = $pdo->query("SELECT id, nome FROM municipios_permitidos WHERE ativo = TRUE ORDER BY nome ASC");
     $lista_municipios = $stmtMunicipios->fetchAll(PDO::FETCH_ASSOC);
 
-    // Contar o total de registros COM o filtro aplicado
+    // Contar total de registros
     $total_registros_stmt = $pdo->prepare("SELECT COUNT(*) FROM cadastros c" . $where_sql);
     $total_registros_stmt->execute($params);
     $total_registros = $total_registros_stmt->fetchColumn();
     $total_paginas = ceil($total_registros / $registros_por_pagina);
 
-    // Buscar os registros da página atual COM o filtro aplicado
+    // Buscar registros da página atual
     $sql = "SELECT c.id, c.protocolo, c.nome, c.cpf, c.status, c.data_envio, m.nome AS nome_municipio
             FROM cadastros c
             JOIN municipios_permitidos m ON c.municipio_id = m.id"
@@ -56,12 +61,10 @@ try {
             
     $stmt = $pdo->prepare($sql);
     
-    // Adiciona os parâmetros do filtro ao statement
     foreach ($params as $key => $val) {
         $stmt->bindValue($key, $val);
     }
     
-    // Adiciona os parâmetros da paginação
     $stmt->bindValue(':limit', $registros_por_pagina, PDO::PARAM_INT);
     $stmt->bindValue(':offset', $offset, PDO::PARAM_INT);
     
@@ -86,7 +89,10 @@ try {
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container">
         <a class="navbar-brand" href="#">Admin - Tempo de Semear</a>
-        <div class="d-flex text-white">
+        <div class="d-flex text-white align-items-center">
+            <?php if ($_SESSION['admin_usuario_perfil'] === 'admin'): ?>
+                <a href="usuarios.php" class="btn btn-outline-light btn-sm me-3">Gerenciar Usuários</a>
+            <?php endif; ?>
             <span class="navbar-text me-3">
                 Usuário: <?= htmlspecialchars($_SESSION['admin_usuario_nome']); ?>
                 (<?= htmlspecialchars($_SESSION['admin_usuario_perfil']); ?>)
@@ -100,8 +106,11 @@ try {
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h1>Lista de Cadastros</h1>
         <?php if (isset($_SESSION['admin_usuario_perfil']) && $_SESSION['admin_usuario_perfil'] === 'admin'):
-            // Adiciona os filtros atuais ao link de exportação
-            $query_export = http_build_query(['municipio_id' => $filtro_municipio_id, 'cpf' => $filtro_cpf]);
+            $query_export = http_build_query([
+                'municipio_id' => $filtro_municipio_id, 
+                'cpf' => $filtro_cpf,
+                'status' => $filtro_status
+            ]);
         ?>
             <a href="exportar_xlsx.php?<?= $query_export ?>" class="btn btn-success">
                 Exportar para Excel
@@ -111,7 +120,7 @@ try {
 
     <div class="card card-body mb-4">
         <form method="GET" action="dashboard.php" class="row g-3 align-items-center">
-            <div class="col-md-5">
+            <div class="col-md-4">
                 <label for="municipio_id" class="form-label">Filtrar por Município</label>
                 <select name="municipio_id" id="municipio_id" class="form-select">
                     <option value="">Todos os municípios</option>
@@ -122,7 +131,18 @@ try {
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="col-md-5">
+            <div class="col-md-3">
+                <label for="status" class="form-label">Filtrar por Status</label>
+                <select name="status" id="status" class="form-select">
+                    <option value="">Todos os status</option>
+                    <option value="rascunho" <?= $filtro_status === 'rascunho' ? 'selected' : '' ?>>Rascunho</option>
+                    <option value="enviado" <?= $filtro_status === 'enviado' ? 'selected' : '' ?>>Enviado</option>
+                    <option value="em_analise" <?= $filtro_status === 'em_analise' ? 'selected' : '' ?>>Em Análise</option>
+                    <option value="aprovado" <?= $filtro_status === 'aprovado' ? 'selected' : '' ?>>Aprovado</option>
+                    <option value="rejeitado" <?= $filtro_status === 'rejeitado' ? 'selected' : '' ?>>Rejeitado</option>
+                </select>
+            </div>
+            <div class="col-md-3">
                 <label for="cpf" class="form-label">Buscar por CPF</label>
                 <input type="text" name="cpf" id="cpf" class="form-control" placeholder="Apenas números" value="<?= htmlspecialchars($filtro_cpf ?? '') ?>">
             </div>
@@ -152,12 +172,32 @@ try {
                 <?php if (count($cadastros) > 0): ?>
                     <?php foreach ($cadastros as $cadastro): ?>
                         <tr>
-                            <td><?= htmlspecialchars($cadastro['protocolo']); ?></td>
+                            <td>
+                                <?php if ($cadastro['protocolo']): ?>
+                                    <?= htmlspecialchars($cadastro['protocolo']) ?>
+                                <?php else: ?>
+                                    <span class="text-muted">-</span>
+                                <?php endif; ?>
+                            </td>
                             <td><?= htmlspecialchars($cadastro['nome']); ?></td>
                             <td><?= htmlspecialchars($cadastro['cpf']); ?></td>
                             <td><?= htmlspecialchars($cadastro['nome_municipio']); ?></td>
                             <td><?= $cadastro['data_envio'] ? date('d/m/Y H:i', strtotime($cadastro['data_envio'])) : 'N/A'; ?></td>
-                            <td><span class="badge bg-secondary"><?= htmlspecialchars($cadastro['status']); ?></span></td>
+                            <td>
+                                <?php
+                                $badge_class = [
+                                    'rascunho' => 'secondary',
+                                    'enviado' => 'primary',
+                                    'em_analise' => 'warning',
+                                    'aprovado' => 'success',
+                                    'rejeitado' => 'danger'
+                                ];
+                                $class = $badge_class[$cadastro['status']] ?? 'secondary';
+                                ?>
+                                <span class="badge bg-<?= $class ?>">
+                                    <?= strtoupper(str_replace('_', ' ', $cadastro['status'])) ?>
+                                </span>
+                            </td>
                             <td>
                                 <a href="ver_cadastro.php?id=<?= $cadastro['id']; ?>" class="btn btn-sm btn-primary">Ver Detalhes</a>
                             </td>
@@ -176,8 +216,11 @@ try {
         <nav aria-label="Navegação de página">
             <ul class="pagination justify-content-center">
                 <?php
-                // Mantém os parâmetros de filtro nos links de paginação
-                $query_params = http_build_query(['municipio_id' => $filtro_municipio_id, 'cpf' => $filtro_cpf]);
+                $query_params = http_build_query([
+                    'municipio_id' => $filtro_municipio_id, 
+                    'cpf' => $filtro_cpf,
+                    'status' => $filtro_status
+                ]);
                 ?>
                 <li class="page-item <?= $pagina_atual <= 1 ? 'disabled' : '' ?>">
                     <a class="page-link" href="?pagina=<?= $pagina_atual - 1; ?>&<?= $query_params ?>">Anterior</a>

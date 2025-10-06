@@ -34,6 +34,11 @@ try {
         $params[':cpf'] = $filtro_cpf . '%';
     }
 
+    if ($filtro_status) { // ADICIONAR
+        $where_conditions[] = "c.status = :status";
+        $params[':status'] = $filtro_status;
+    }
+
     $where_sql = "";
     if (count($where_conditions) > 0) {
         $where_sql = " WHERE " . implode(" AND ", $where_conditions);

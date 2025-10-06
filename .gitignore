@@ -3,3 +3,4 @@ vendor/
 *.bkp
 *.log
 src/gerar_hash.php
+
