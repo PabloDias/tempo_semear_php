@@ -4,16 +4,15 @@
 session_start();
 require_once '../db.php';
 
-$perfis_permitidos = ['admin', 'supervisor'];
+if (!isset($_SESSION['admin_usuario_id']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $perfil = $_SESSION['admin_usuario_perfil']
 
-if (!isset($_SESSION['admin_usuario_id']) || !in_array($_SESSION['admin_usuario_perfil'], $perfis_permitidos) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
-    header('Location: index.php?error=acesso_negado');
-    exit();
-}
 
 $cadastro_id = (int)$_POST['cadastro_id'];
 $justificativa = trim($_POST['justificativa']);
 $admin_id = $_SESSION['admin_usuario_id'];
+
+}
 
 if (empty($cadastro_id) || empty($justificativa) || strlen($justificativa) < 10) {
     header('Location: editar_cadastro.php?id=' . $cadastro_id . '&error=justificativa_invalida');
@@ -31,6 +30,14 @@ try {
     if (!$dados_antigos) {
         throw new Exception("Cadastro não encontrado.");
     }
+
+    if ($perfil === 'supervisor') {
+    if (!in_array($dados_antigos['status'], ['rascunho', 'em_analise'])) {
+        throw new Exception("Supervisor só pode editar cadastros em rascunho ou em análise.");
+    }
+}
+
+
     
     // Coleta os novos dados do formulário
     $dados_novos = [

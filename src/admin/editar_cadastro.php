@@ -5,17 +5,24 @@ session_start();
 require_once '../db.php';
 
 // Apenas usuários 'internos' podem editar
-$perfis_permitidos = ['admin', 'supervisor'];
-
-if (!isset($_SESSION['admin_usuario_id']) || !in_array($_SESSION['admin_usuario_perfil'], $perfis_permitidos)) {
-    header('Location: index.php?error=acesso_negado');
+if (!isset($_SESSION['admin_usuario_id'])) {
+    header('Location: index.php');
     exit();
 }
+
+$perfil = $_SESSION['admin_usuario_perfil'];
 
 $cadastro_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 if ($cadastro_id === 0) {
     header('Location: dashboard.php?error=id_invalido');
     exit();
+}
+
+if ($perfil === 'supervisor') {
+    if (!in_array($cadastro['status'], ['rascunho', 'em_analise'])) {
+        header('Location: ver_cadastro.php?id=' . $cadastro_id . '&error=sem_permissao');
+        exit();
+    }
 }
 
 try {
