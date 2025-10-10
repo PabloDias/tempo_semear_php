@@ -1,18 +1,19 @@
 <?php
-// src/admin/processa_edicao_admin.php (VERSÃO COMPLETA)
+// src/admin/processa_edicao_admin.php (VERSÃO CORRIGIDA)
 
 session_start();
 require_once '../db.php';
 
 if (!isset($_SESSION['admin_usuario_id']) || $_SERVER['REQUEST_METHOD'] !== 'POST') {
-    $perfil = $_SESSION['admin_usuario_perfil']
+    header('Location: dashboard.php');
+    exit();
+}
 
-
+// CORREÇÃO: Define as variáveis ANTES de usá-las
+$perfil = $_SESSION['admin_usuario_perfil'];
 $cadastro_id = (int)$_POST['cadastro_id'];
 $justificativa = trim($_POST['justificativa']);
 $admin_id = $_SESSION['admin_usuario_id'];
-
-}
 
 if (empty($cadastro_id) || empty($justificativa) || strlen($justificativa) < 10) {
     header('Location: editar_cadastro.php?id=' . $cadastro_id . '&error=justificativa_invalida');
@@ -31,13 +32,12 @@ try {
         throw new Exception("Cadastro não encontrado.");
     }
 
+    // Verifica permissão do supervisor
     if ($perfil === 'supervisor') {
-    if (!in_array($dados_antigos['status'], ['rascunho', 'em_analise'])) {
-        throw new Exception("Supervisor só pode editar cadastros em rascunho ou em análise.");
+        if (!in_array($dados_antigos['status'], ['rascunho', 'em_analise'])) {
+            throw new Exception("Supervisor só pode editar cadastros em rascunho ou em análise.");
+        }
     }
-}
-
-
     
     // Coleta os novos dados do formulário
     $dados_novos = [

@@ -1,5 +1,5 @@
 <?php
-// src/admin/editar_cadastro.php (VERSÃO COMPLETA)
+// src/admin/editar_cadastro.php (VERSÃO CORRIGIDA)
 
 session_start();
 require_once '../db.php';
@@ -10,6 +10,7 @@ if (!isset($_SESSION['admin_usuario_id'])) {
     exit();
 }
 
+// CORREÇÃO 1: Define a variável $perfil ANTES de usá-la
 $perfil = $_SESSION['admin_usuario_perfil'];
 
 $cadastro_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
@@ -18,13 +19,7 @@ if ($cadastro_id === 0) {
     exit();
 }
 
-if ($perfil === 'supervisor') {
-    if (!in_array($cadastro['status'], ['rascunho', 'em_analise'])) {
-        header('Location: ver_cadastro.php?id=' . $cadastro_id . '&error=sem_permissao');
-        exit();
-    }
-}
-
+// CORREÇÃO 2: Busca os dados do cadastro ANTES de verificar permissões
 try {
     // Busca os dados do cadastro
     $stmt = $pdo->prepare("SELECT * FROM cadastros WHERE id = :id");
@@ -34,6 +29,14 @@ try {
     if (!$cadastro) {
         header('Location: dashboard.php?error=cadastro_nao_encontrado');
         exit();
+    }
+    
+    // CORREÇÃO 3: Agora sim verifica permissões do supervisor (APÓS buscar o cadastro)
+    if ($perfil === 'supervisor') {
+        if (!in_array($cadastro['status'], ['rascunho', 'em_analise'])) {
+            header('Location: ver_cadastro.php?id=' . $cadastro_id . '&error=sem_permissao');
+            exit();
+        }
     }
     
     // Busca municípios ativos
@@ -104,7 +107,7 @@ try {
                     </div>
                     <div class="col-md-6">
                         <label for="situacao" class="form-label">Parentesco no CAF</label>
-                        <select class="form-select" id="situacao" name="situacao" <?= $form_editavel ? '' : 'disabled' ?>>
+                        <select class="form-select" id="situacao" name="situacao">
                             <option value="">Selecione...</option>
                             <option value="Pessoa responsável pela UFPA (declarante)" <?= ($cadastro['situacao'] ?? '') == 'Pessoa responsável pela UFPA (declarante)' ? 'selected' : '' ?>>Pessoa responsável pela UFPA (declarante)</option>
                             <option value="Filho(a)" <?= ($cadastro['situacao'] ?? '') == 'Filho(a)' ? 'selected' : '' ?>>Filho(a)</option>
